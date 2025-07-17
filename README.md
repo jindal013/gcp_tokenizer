@@ -1,4 +1,4 @@
-# Data for Jaxformer
+# GCP Tokenizer
 
 Collection of scripts to efficiently upload tokenized shards to GCP buckets. Work in progress.
 
