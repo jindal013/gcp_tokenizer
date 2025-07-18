@@ -15,6 +15,8 @@ from ray.util.multiprocessing import Pool
 BLUE = '\033[34m'
 RESET = '\033[0m'
 
+ray.init(address='10.164.0.4:6379') # for child nodes
+
 # ------------------------------------------
 local_dir = "edu_fineweb10B"
 remote_name = "sample-10BT"
