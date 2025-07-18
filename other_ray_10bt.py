@@ -99,7 +99,7 @@ with Pool(ray_address="auto") as pool:
   token_count = 0
   progress_bar = None
   
-  for tokens in pool.imap(tokenize, fw, chunksize=16):
+  for tokens in pool.map(tokenize, fw, chunksize=16):
 
     # print(tokens)
     # break
