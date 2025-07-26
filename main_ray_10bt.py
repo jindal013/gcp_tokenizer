@@ -73,13 +73,13 @@ print(f'{BLUE}hf dataset has been accessed {RESET}') # not downloaded now as we 
 
 cpu_count = os.cpu_count()
 
-storage_client = Client()
-bucket = storage_client.bucket(BUCKET_NAME)
 
 @ray.remote
 def upload_file():
   
-  @ray.remote
+  storage_client = Client()
+  bucket = storage_client.bucket(BUCKET_NAME)
+
   def upload_many_blobs_with_transfer_manager(bucket_name, filenames, source_directory="", workers=8):
 
     results = transfer_manager.upload_many_from_filenames(
@@ -96,7 +96,7 @@ def upload_file():
   FILE_NAMES = os.listdir(DATA_CACHE_DIR)
   print('------------')
   print(f'starting upload to GCP bucket {BUCKET_NAME}')
-  upload_many_blobs_with_transfer_manager.remote(BUCKET_NAME, FILE_NAMES, DATA_CACHE_DIR, WORKERS)
+  upload_many_blobs_with_transfer_manager(BUCKET_NAME, FILE_NAMES, DATA_CACHE_DIR, WORKERS)
   print(f'done upload to GCP bucket {BUCKET_NAME} for {FILE_NAMES}')
   print('cleaning up files....')
   for file in FILE_NAMES:
@@ -106,6 +106,9 @@ def upload_file():
 
 # def main():
 # with Pool(ray_address="auto") as pool:
+
+pool = Pool(ray_address="auto")
+
 @ray.remote
 def start_script():
   shard_index = 0
