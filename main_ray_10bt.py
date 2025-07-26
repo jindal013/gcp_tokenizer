@@ -148,6 +148,7 @@ def start_script():
     write_datafile.remote(filename, all_tokens_np[:token_count])
     upload_file.remote()
 
-start_script.remote()
+ref = start_script.remote()
+ray.get(ref)
 # if __name__ == '__main__':
 #   main()
