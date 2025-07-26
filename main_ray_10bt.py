@@ -27,7 +27,7 @@ print('''This cluster consists of
 @ray.remote
 def f():
     time.sleep(0.001)
-    return socket.gethostbyname("localhost")
+    return socket.gethostname()
 
 object_ids = [f.remote() for _ in range(10000)]
 ip_addresses = ray.get(object_ids)
