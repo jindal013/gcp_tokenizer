@@ -111,7 +111,7 @@ with Pool(ray_address="auto") as pool:
   token_count = 0
   progress_bar = None
   
-  for tokens in pool.map(tokenize.remote, fw, chunksize=32):
+  for tokens in ray.get(pool.map(tokenize.remote, fw, chunksize=32)):
 
     if token_count + len(tokens) < shard_size:
       all_tokens_np[token_count:token_count+len(tokens)] = tokens
