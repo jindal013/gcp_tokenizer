@@ -105,7 +105,9 @@ def upload_file():
     print(f'removed {file} successfully')
 
 # def main():
-with Pool(ray_address="auto") as pool:
+# with Pool(ray_address="auto") as pool:
+@ray.remote
+def start_script():
   shard_index = 0
   all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
   token_count = 0
@@ -143,5 +145,6 @@ with Pool(ray_address="auto") as pool:
     write_datafile.remote(filename, all_tokens_np[:token_count])
     upload_file.remote()
 
+start_script.remote()
 # if __name__ == '__main__':
 #   main()
