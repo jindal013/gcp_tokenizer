@@ -24,17 +24,17 @@ print('''This cluster consists of
     {} CPU resources in total
 '''.format(len(ray.nodes()), ray.cluster_resources()['CPU']))
 
-@ray.remote
-def f():
-    time.sleep(0.001)
-    return socket.gethostname()
+# @ray.remote
+# def f():
+#     time.sleep(0.001)
+#     return socket.gethostname()
 
-object_ids = [f.remote() for _ in range(10000)]
-ip_addresses = ray.get(object_ids)
+# object_ids = [f.remote() for _ in range(10000)]
+# ip_addresses = ray.get(object_ids)
 
-print('Tasks executed')
-for ip_address, num_tasks in Counter(ip_addresses).items():
-    print('    {} tasks on {}'.format(num_tasks, ip_address))
+# print('Tasks executed')
+# for ip_address, num_tasks in Counter(ip_addresses).items():
+#     print('    {} tasks on {}'.format(num_tasks, ip_address))
 
 # ------------------------------------------
 # code for script
@@ -44,7 +44,7 @@ remote_name = "sample-10BT"
 shard_size = int(1e8)
 
 BUCKET_NAME = "test2_10bt_gpt4"
-WORKERS = int(os.cpu_count() / 1.5)
+WORKERS = int(os.cpu_count())
 DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
 FILE_NAMES = os.listdir(DATA_CACHE_DIR)
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
@@ -55,7 +55,7 @@ enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
 
 eot = enc._special_tokens['<|endoftext|>'] 
 
-@ray.remote
+# @ray.remote
 def tokenize(doc):
   tokens = [eot]
   tokens.extend(enc.encode_ordinary(doc["text"]))
@@ -64,17 +64,15 @@ def tokenize(doc):
   tokens_np_uint32 = tokens_np.astype(np.uint32)
   return tokens_np_uint32
 
-@ray.remote
+# @ray.remote
 def write_datafile(filename, tokens_np):
   np.save(filename, tokens_np)
 
 print(f'{BLUE}hf dataset has been accessed {RESET}') # not downloaded now as we are streaming the dataset
 
+# cpu_count = os.cpu_count()
 
-cpu_count = os.cpu_count()
-
-
-@ray.remote
+# @ray.remote
 def upload_file():
   
   storage_client = Client()
@@ -104,19 +102,19 @@ def upload_file():
     os.remove(full_path)
     print(f'removed {file} successfully')
 
-# def main():
-# with Pool(ray_address="auto") as pool:
-
-pool = Pool(ray_address="auto")
-
-@ray.remote
-def start_script():
+def main():
+  # with Pool(ray_address="auto") as pool:
+  pool = Pool()
+  # @ray.remote
+  # def start_script():
   shard_index = 0
   all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
   token_count = 0
   progress_bar = None
-  
-  for tokens in ray.get(pool.map(tokenize.remote, fw, chunksize=32)):
+
+  for tokens in pool.map(tokenize, fw):
+
+    # tokens = ray.get(tokens)
 
     if token_count + len(tokens) < shard_size:
       all_tokens_np[token_count:token_count+len(tokens)] = tokens
@@ -133,8 +131,8 @@ def start_script():
       remainder = shard_size - token_count
       progress_bar.update(remainder)
       all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
-      write_datafile.remote(filename, all_tokens_np)
-      upload_file.remote()
+      write_datafile(filename, all_tokens_np)
+      upload_file()
       shard_index += 1
       progress_bar = None
       # populate the next shard with the leftovers of the current doc
@@ -145,10 +143,10 @@ def start_script():
   if token_count != 0:
     split = "val" if shard_index == 0 else "train"
     filename = os.path.join(DATA_CACHE_DIR, f"edufineweb_{split}_{shard_index:06d}")
-    write_datafile.remote(filename, all_tokens_np[:token_count])
-    upload_file.remote()
+    write_datafile(filename, all_tokens_np[:token_count])
+    upload_file()
 
-ref = start_script.remote()
-ray.get(ref)
-# if __name__ == '__main__':
-#   main()
+# ref = start_script.remote()
+# ray.get(ref)
+if __name__ == '__main__':
+  main()
