@@ -15,8 +15,8 @@ local_dir = "data_dir"
 remote_name = "sample-350BT"
 shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
 
-VAL_SPLIT = 1
-TEST_SPLIT = 2
+VAL_SPLIT = 350
+TEST_SPLIT = 700
 
 BUCKET_NAME = "350bt_gpt4"
 WORKERS = int(os.cpu_count())
