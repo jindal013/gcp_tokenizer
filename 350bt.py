@@ -52,7 +52,7 @@ storage_client = Client()
 bucket = storage_client.bucket(BUCKET_NAME)
 
 def upload_file():
-  def upload_many_blobs_with_transfer_manager(bucket_name, filenames, source_directory="", workers=8):
+  def upload_many_blobs_with_transfer_manager(filenames, source_directory="", workers=8):
 
     blob_names = [split + name for name in filenames]
 
@@ -72,7 +72,7 @@ def upload_file():
   FILE_NAMES = os.listdir(DATA_CACHE_DIR)
   print('------------')
   print(f'starting upload to GCP bucket {BUCKET_NAME}')
-  upload_many_blobs_with_transfer_manager(BUCKET_NAME, FILE_NAMES, DATA_CACHE_DIR, WORKERS)
+  upload_many_blobs_with_transfer_manager(FILE_NAMES, DATA_CACHE_DIR, WORKERS)
   print(f'done upload to GCP bucket {BUCKET_NAME} for {FILE_NAMES}')
   print('cleaning up files....')
   for file in FILE_NAMES:
@@ -85,9 +85,9 @@ with mp.Pool(nprocs) as pool:
   shard_index = 0
 
   # splits for train, val, test
-  if shard_index >= 0 and shard_index < 350:
+  if shard_index >= 0 and shard_index < 1:
     split = 'val/'
-  elif shard_index >= 350 and shard_index < 700: 
+  elif shard_index >= 1 and shard_index < 700: 
     split = 'test/'
   else:
     split = 'train/'
@@ -136,5 +136,5 @@ with mp.Pool(nprocs) as pool:
 #   main()
 
 # clean up directory
-if os.path.exists("my_directory"):
-  shutil.rmtree("my_directory")
+if os.path.exists(DATA_CACHE_DIR):
+  shutil.rmtree(DATA_CACHE_DIR)
