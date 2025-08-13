@@ -1,7 +1,7 @@
 from google.cloud.storage import Client, transfer_manager
 import os
 
-BUCKET_NAME = "10bt_gpt4_test"
+BUCKET_NAME = "350bt_gpt4"
 DATA_CACHE_DIR = "/home/chinmay/gcp_tokenizer/edu_fineweb10B"
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 FILE_NAMES = os.listdir(DATA_CACHE_DIR)

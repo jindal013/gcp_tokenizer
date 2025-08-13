@@ -54,8 +54,12 @@ bucket = storage_client.bucket(BUCKET_NAME)
 def upload_file():
   def upload_many_blobs_with_transfer_manager(bucket_name, filenames, source_directory="", workers=8):
 
-    results = transfer_manager.upload_many_from_filenames(
-      bucket, filenames, source_directory=source_directory, max_workers=workers, worker_type=transfer_manager.THREAD
+    blob_names = [split + name for name in filenames]
+
+    blob_file_pairs = [(os.path.join(source_directory, f), bucket.blob(b)) for f, b in zip(filenames, blob_names)]
+
+    results = transfer_manager.upload_many(
+      blob_file_pairs, skip_if_exists=True, max_workers=workers, worker_type=transfer_manager.THREAD
     )
 
     for name, result in zip(filenames, results):
@@ -82,11 +86,11 @@ with mp.Pool(nprocs) as pool:
 
   # splits for train, val, test
   if shard_index >= 0 and shard_index < 350:
-    split = 'val'
+    split = 'val/'
   elif shard_index >= 350 and shard_index < 700: 
-    split = 'test'
+    split = 'test/'
   else:
-    split = 'train'
+    split = 'train/'
 
   # preallocate buffer to hold current shard
   all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
@@ -106,11 +110,9 @@ with mp.Pool(nprocs) as pool:
       progress_bar.update(len(tokens))
     else:
       # write the current shard and start a new one
-      split = "val" if shard_index == 0 else "train"
-
-
-
-      filename = os.path.join(DATA_CACHE_DIR, f"{split}_{shard_index:06d}")
+      # split = "val" if shard_index == 0 else "train"
+      split_name = split[:-1]
+      filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index:06d}")
       # split the document into whatever fits in this shard; the remainder goes to next one
       remainder = shard_size - token_count
       progress_bar.update(remainder)
@@ -125,7 +127,8 @@ with mp.Pool(nprocs) as pool:
 
   # write any remaining tokens as the last shard
   if token_count != 0:
-    filename = os.path.join(DATA_CACHE_DIR, f"{split}_{shard_index:06d}")
+    split_name = split[:-1]
+    filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index:06d}")
     write_datafile(filename, all_tokens_np[:token_count])
     upload_file()
 

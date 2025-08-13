@@ -9,3 +9,5 @@ def list_buckets():
 
     for bucket in buckets:
         print(bucket.name)
+
+list_buckets()
