@@ -15,6 +15,9 @@ local_dir = "data_dir"
 remote_name = "sample-350BT"
 shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
 
+VAL_SPLIT = 1
+TEST_SPLIT = 2
+
 BUCKET_NAME = "350bt_gpt4"
 WORKERS = int(os.cpu_count())
 print('using', WORKERS, 'cpus')
@@ -51,8 +54,8 @@ nprocs = max(1, int(cpu_count / 1.2))
 storage_client = Client()
 bucket = storage_client.bucket(BUCKET_NAME)
 
-def upload_file():
-  def upload_many_blobs_with_transfer_manager(filenames, source_directory="", workers=8):
+def upload_file(split):
+  def upload_many_blobs_with_transfer_manager(split, filenames, source_directory="", workers=8):
 
     blob_names = [split + name for name in filenames]
 
@@ -72,7 +75,7 @@ def upload_file():
   FILE_NAMES = os.listdir(DATA_CACHE_DIR)
   print('------------')
   print(f'starting upload to GCP bucket {BUCKET_NAME}')
-  upload_many_blobs_with_transfer_manager(FILE_NAMES, DATA_CACHE_DIR, WORKERS)
+  upload_many_blobs_with_transfer_manager(split, FILE_NAMES, DATA_CACHE_DIR, WORKERS)
   print(f'done upload to GCP bucket {BUCKET_NAME} for {FILE_NAMES}')
   print('cleaning up files....')
   for file in FILE_NAMES:
@@ -83,14 +86,6 @@ def upload_file():
 # def main():
 with mp.Pool(nprocs) as pool:
   shard_index = 0
-
-  # splits for train, val, test
-  if shard_index >= 0 and shard_index < 1:
-    split = 'val/'
-  elif shard_index >= 1 and shard_index < 700: 
-    split = 'test/'
-  else:
-    split = 'train/'
 
   # preallocate buffer to hold current shard
   all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
@@ -110,15 +105,24 @@ with mp.Pool(nprocs) as pool:
       progress_bar.update(len(tokens))
     else:
       # write the current shard and start a new one
-      # split = "val" if shard_index == 0 else "train"
+      if shard_index >= 0 and shard_index < VAL_SPLIT:
+        split = 'val/'
+        shard_index_number = shard_index
+      elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT:
+        split = 'test/'
+        shard_index_number = shard_index - VAL_SPLIT
+      else:
+        split = 'train/'
+        shard_index_number = shard_index - TEST_SPLIT
       split_name = split[:-1]
-      filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index:06d}")
+
+      filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
       # split the document into whatever fits in this shard; the remainder goes to next one
       remainder = shard_size - token_count
       progress_bar.update(remainder)
       all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
       write_datafile(filename, all_tokens_np)
-      upload_file()
+      upload_file(split)
       shard_index += 1
       progress_bar = None
       # populate the next shard with the leftovers of the current doc
@@ -127,10 +131,20 @@ with mp.Pool(nprocs) as pool:
 
   # write any remaining tokens as the last shard
   if token_count != 0:
+    if shard_index >= 0 and shard_index < VAL_SPLIT:
+        split = 'val/'
+        shard_index_number = shard_index
+    elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
+      split = 'test/'
+      shard_index_number = shard_index - VAL_SPLIT
+    else:
+      split = 'train/'
+      shard_index_number = shard_index - TEST_SPLIT
     split_name = split[:-1]
-    filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index:06d}")
+    
+    filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
     write_datafile(filename, all_tokens_np[:token_count])
-    upload_file()
+    upload_file(split)
 
 # if __name__ == '__main__':
 #   main()
