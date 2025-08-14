@@ -76,13 +76,14 @@ fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", 
 enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
 
 eot = enc._special_tokens['<|endoftext|>'] # end of text token
-def tokenize(doc):
+def tokenize(document_id):
+  doc_id_return = document_id['id']
   tokens = [eot] # the special <|endoftext|> token delimits all documents
   tokens.extend(enc.encode_ordinary(doc["text"]))
   tokens_np = np.array(tokens)
   assert (0 <= tokens_np).all() and (tokens_np < 2**32).all(), "token dictionary too large for uint32"
   tokens_np_uint32 = tokens_np.astype(np.uint32)
-  return tokens_np_uint32, doc["id"]
+  return tokens_np_uint32, doc_id_return
 
 def write_datafile(filename, tokens_np):
   np.save(filename, tokens_np)
