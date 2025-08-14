@@ -9,6 +9,8 @@ from google.cloud.storage import Client, transfer_manager
 import argparse
 
 BLUE = '\033[34m'
+GREEN = '\033[32m'
+RED = '\033[31m'
 RESET = '\033[0m'
 
 local_dir = "data_dir"
@@ -40,6 +42,7 @@ args = parser.parse_args()
 continue_processing = args.continue_processing
 checkpoint_to_resume = None
 shard_to_resume = 0
+skip_number = 0
 
 if continue_processing:
   # pull latest checkpoint name from gcp bucket called checkpoints
@@ -47,13 +50,14 @@ if continue_processing:
   blobs = bucket.list_blobs(prefix="checkpoints/")
   checkpoint_blobs = [b for b in blobs if str(b.name).endswith(".txt")]
   if not checkpoint_blobs:
-    print(f'{BLUE}No checkpoints found, starting new processing{RESET}')
+    print(f'{RED}No checkpoints found, starting new processing{RESET}')
+    continue_processing = False
   else:
     latest_checkpoint = max(checkpoint_blobs, key=lambda b: b.updated)
-    print(f'{BLUE}Found latest checkpoint: {latest_checkpoint.name}{RESET}')
+    print(f'{GREEN}Found latest checkpoint: {latest_checkpoint.name}{RESET}')
     checkpoint_to_resume = latest_checkpoint.name[len("checkpoints/"):-4]  # remove 'checkpoints/' prefix and '.txt' suffix
-    shard_to_resume = int(latest_checkpoint.download_as_bytes().decode('utf-8'))
-    print(f'{BLUE}Resuming from checkpoint {checkpoint_to_resume} at shard {shard_to_resume}{RESET}')
+    shard_to_resume, skip_number = map(int, (latest_checkpoint.download_as_bytes().decode('utf-8')).split(':'))
+    print(f'{BLUE}Resuming from checkpoint {checkpoint_to_resume} at shard {shard_to_resume} with skip number {skip_number}{RESET}')
 
 else:
   print(f'{BLUE}Starting new process... no checkpoint given{RESET}')
@@ -66,22 +70,13 @@ checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 os.makedirs(checkpoint_dir, exist_ok=True)
 
-fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True, num_proc=nprocs)
+fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True)
 
 # init the tokenizer
 enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
 
 eot = enc._special_tokens['<|endoftext|>'] # end of text token
 def tokenize(doc):
-  # tokenizes a single document and returns a numpy array of uint32 tokens
-  # doc_id = doc["id"]
-  # if continue_processing:
-  #     if doc_id == checkpoint_to_resume:
-  #       continue_processing = False
-  #       continue
-  #     else:
-  #       return None, None
-  # else:
   tokens = [eot] # the special <|endoftext|> token delimits all documents
   tokens.extend(enc.encode_ordinary(doc["text"]))
   tokens_np = np.array(tokens)
@@ -135,16 +130,10 @@ def upload_checkpoint():
     print(f'removed {filename} successfully')
 
 # def main():
+fw.skip(skip_number)
+print('total docs processed so far: ' + str(skip_number))
 if continue_processing:
-  skipped = 0
-  print('starting streaming to skip to desired location')
-  for doc in fw:
-    if doc["id"] == checkpoint_to_resume:
-      print(f'{BLUE}Resuming from document {doc["id"]} at shard {shard_to_resume}. Skipped {skipped} documents.{RESET}')
-      break
-    if skipped % 10000 == 0:
-      print(skipped)
-    skipped += 1
+  print('skipped to the previous checkpoint')
 
 with mp.Pool(nprocs) as pool:
   if continue_processing:
@@ -158,7 +147,7 @@ with mp.Pool(nprocs) as pool:
   progress_bar = None
   
   for tokens, doc_id in pool.imap(tokenize, fw, chunksize=16):
-
+    skip_number += 1
       # is there enough space in the current shard for the new tokens?
     if token_count + len(tokens) < shard_size:
       # simply append tokens to current shard
@@ -172,7 +161,7 @@ with mp.Pool(nprocs) as pool:
       # checkpoint the shard
       checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.txt")
       with open(checkpoint_filename, "w") as f:
-          f.write(str(shard_index))
+          f.write(str(shard_index) + ':' + str(skip_number))
 
       # write the current shard and start a new one
       if shard_index >= 0 and shard_index < VAL_SPLIT:
