@@ -151,77 +151,77 @@ doc_iter = iter(fw)
 while True:
     batch = []
     try:
-        for _ in range(BATCH_SIZE):
-            batch.append(next(doc_iter))
+      for _ in range(BATCH_SIZE):
+        batch.append(next(doc_iter))
     except StopIteration:
-        pass
+      pass
     
     if not batch:
-        break
+      break
     
     futures = [tokenize.remote(doc) for doc in batch]
     results = ray.get(futures)
     
     for tokens, doc_id in results:
-        skip_number += 1
-        # is there enough space in the current shard for the new tokens?
-        if token_count + len(tokens) < shard_size:
+      skip_number += 1
+      # is there enough space in the current shard for the new tokens?
+      if token_count + len(tokens) < shard_size:
         # simply append tokens to current shard
-            all_tokens_np[token_count:token_count+len(tokens)] = tokens
-            token_count += len(tokens)
-        # update progress bar
-            if progress_bar is None:
-                progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
-            progress_bar.update(len(tokens))
-        else:
-        # checkpoint the shard
-            checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.txt")
-            with open(checkpoint_filename, "w") as f:
-                f.write(str(shard_index) + ':' + str(skip_number))
+        all_tokens_np[token_count:token_count+len(tokens)] = tokens
+        token_count += len(tokens)
+      # update progress bar
+        if progress_bar is None:
+          progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
+        progress_bar.update(len(tokens))
+      else:
+      # checkpoint the shard
+        checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.txt")
+        with open(checkpoint_filename, "w") as f:
+          f.write(str(shard_index) + ':' + str(skip_number))
 
-            # write the current shard and start a new one
-            if shard_index >= 0 and shard_index < VAL_SPLIT:
-                split = 'val/'
-                shard_index_number = shard_index
-            elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT:
-                split = 'test/'
-                shard_index_number = shard_index - VAL_SPLIT
-            else:
-                split = 'train/'
-                shard_index_number = shard_index - TEST_SPLIT
-            split_name = split[:-1]
-
-            filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
-            # split the document into whatever fits in this shard; the remainder goes to next one
-            remainder = shard_size - token_count
-            progress_bar.update(remainder)
-            all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
-            write_datafile(filename, all_tokens_np)
-            upload_file(split)
-            upload_checkpoint()
-            shard_index += 1
-            progress_bar = None
-            # populate the next shard with the leftovers of the current doc
-            all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
-            token_count = len(tokens)-remainder
-
-  # write any remaining tokens as the last shard
-    if token_count != 0:
-        if shard_index >= 0 and shard_index < VAL_SPLIT:
-            split = 'val/'
-            shard_index_number = shard_index
-        elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
+        # write the current shard and start a new one
+        if shard_index < VAL_SPLIT:
+          split = 'val/'
+          shard_index_number = shard_index
+        elif shard_index < TEST_SPLIT:
             split = 'test/'
             shard_index_number = shard_index - VAL_SPLIT
         else:
             split = 'train/'
             shard_index_number = shard_index - TEST_SPLIT
-    split_name = split[:-1]
+        split_name = split[:-1]
+
+        filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
+        # split the document into whatever fits in this shard; the remainder goes to next one
+        remainder = shard_size - token_count
+        progress_bar.update(remainder)
+        all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
+        write_datafile(filename, all_tokens_np)
+        upload_file(split)
+        upload_checkpoint()
+        shard_index += 1
+        progress_bar = None
+        # populate the next shard with the leftovers of the current doc
+        all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
+        token_count = len(tokens)-remainder
+
+# write any remaining tokens as the last shard
+if token_count != 0:
+  if shard_index >= 0 and shard_index < VAL_SPLIT:
+    split = 'val/'
+    shard_index_number = shard_index
+  elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
+    split = 'test/'
+    shard_index_number = shard_index - VAL_SPLIT
+  else:
+    split = 'train/'
+    shard_index_number = shard_index - TEST_SPLIT
+  split_name = split[:-1]
     
-    filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
-    write_datafile(filename, all_tokens_np[:token_count])
-    upload_file(split)
-    upload_checkpoint()
+  filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
+  write_datafile(filename, all_tokens_np[:token_count])
+  upload_file(split)
+  upload_checkpoint()
 
 # if __name__ == '__main__':
 #   main()
