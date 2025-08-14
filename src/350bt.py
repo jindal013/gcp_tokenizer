@@ -66,7 +66,7 @@ checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 os.makedirs(checkpoint_dir, exist_ok=True)
 
-fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True)
+fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True, num_proc=nprocs)
 
 # init the tokenizer
 enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
@@ -142,8 +142,8 @@ if continue_processing:
     if doc["id"] == checkpoint_to_resume:
       print(f'{BLUE}Resuming from document {doc["id"]} at shard {shard_to_resume}. Skipped {skipped} documents.{RESET}')
       break
-    # if skipped % 100 == 0:
-    #   print(skipped)
+    if skipped % 10000 == 0:
+      print(skipped)
     skipped += 1
 
 with mp.Pool(nprocs) as pool:
