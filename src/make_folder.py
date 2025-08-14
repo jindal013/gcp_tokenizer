@@ -21,5 +21,5 @@ if __name__ == '__main__':
   bucket_name = "350bt_gpt4"
 
     # The name of the folder to be created
-  for folder_name in ['train', 'val', 'test']:
+  for folder_name in ['train', 'val', 'test', 'checkpoints']:
     create_folder(bucket_name, folder_name)
