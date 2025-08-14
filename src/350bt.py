@@ -22,6 +22,12 @@ BUCKET_NAME = "350bt_gpt4"
 WORKERS = int(os.cpu_count())
 print('using', WORKERS, 'cpus')
 
+cpu_count = os.cpu_count()
+nprocs = max(1, int(cpu_count / 1.5))
+
+storage_client = Client()
+bucket = storage_client.bucket(BUCKET_NAME)
+
 def setup_argument_parser():
   parser = argparse.ArgumentParser(description='Process the 350BT dataset')
   parser.add_argument('--continue', dest='continue_processing', action='store_true',
@@ -33,18 +39,21 @@ parser = setup_argument_parser()
 args = parser.parse_args()
 continue_processing = args.continue_processing
 checkpoint_to_resume = None
+shard_to_resume = 0
 
 if continue_processing:
   # pull latest checkpoint name from gcp bucket called checkpoints
   print(f'{BLUE}Continuing processing from checkpoint{RESET}')
   blobs = bucket.list_blobs(BUCKET_NAME, prefix="checkpoints/")
-  checkpoint_blobs = [b for b in blobs if b.name.endswith(".npy")]
+  checkpoint_blobs = [b for b in blobs if b.name.endswith(".txt")]
   if not checkpoint_blobs:
     print(f'{BLUE}No checkpoints found, starting new processing{RESET}')
   else:
     latest_checkpoint = max(checkpoint_blobs, key=lambda b: b.updated)
     print(f'{BLUE}Found latest checkpoint: {latest_checkpoint.name}{RESET}')
-    checkpoint_to_resume = latest_checkpoint.name[len("checkpoints/"):-4]  # remove 'checkpoints/' prefix and '.npy' suffix
+    checkpoint_to_resume = latest_checkpoint.name[len("checkpoints/"):-4]  # remove 'checkpoints/' prefix and '.txt' suffix
+    shard_to_resume = int(latest_checkpoint.download_as_bytes().decode('utf-8'))
+    print(f'{BLUE}Resuming from checkpoint {checkpoint_to_resume} at shard {shard_to_resume}{RESET}')
 
 else:
   print(f'{BLUE}Starting new processing{RESET}')
@@ -56,7 +65,6 @@ DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
 checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 os.makedirs(checkpoint_dir, exist_ok=True)
-FILE_NAMES = os.listdir(DATA_CACHE_DIR)
 
 fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True)
 
@@ -66,32 +74,26 @@ enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
 eot = enc._special_tokens['<|endoftext|>'] # end of text token
 def tokenize(doc):
   # tokenizes a single document and returns a numpy array of uint32 tokens
-  doc_id = doc["id"]
-  if continue_processing:
-      if doc_id == checkpoint_to_resume:
-        continue_processing = False
-        continue
-      else:
-        return None, None
-  else:
-    tokens = [eot] # the special <|endoftext|> token delimits all documents
-    tokens.extend(enc.encode_ordinary(doc["text"]))
-    tokens_np = np.array(tokens)
-    assert (0 <= tokens_np).all() and (tokens_np < 2**32).all(), "token dictionary too large for uint32"
-    tokens_np_uint32 = tokens_np.astype(np.uint32)
-    return tokens_np_uint32, doc_id
+  # doc_id = doc["id"]
+  # if continue_processing:
+  #     if doc_id == checkpoint_to_resume:
+  #       continue_processing = False
+  #       continue
+  #     else:
+  #       return None, None
+  # else:
+  tokens = [eot] # the special <|endoftext|> token delimits all documents
+  tokens.extend(enc.encode_ordinary(doc["text"]))
+  tokens_np = np.array(tokens)
+  assert (0 <= tokens_np).all() and (tokens_np < 2**32).all(), "token dictionary too large for uint32"
+  tokens_np_uint32 = tokens_np.astype(np.uint32)
+  return tokens_np_uint32, doc["id"]
 
 def write_datafile(filename, tokens_np):
   np.save(filename, tokens_np)
 
 print(f'{BLUE}hf dataset has been accessed {RESET}') # not downloaded now as we are streaming the dataset
 
-# tokenize all documents and write output shards, each of shard_size tokens (last shard has remainder)
-cpu_count = os.cpu_count()
-nprocs = max(1, int(cpu_count / 1.2))
-
-storage_client = Client()
-bucket = storage_client.bucket(BUCKET_NAME)
 
 def upload_file(split):
   def upload_many_blobs_with_transfer_manager(split, filenames, source_directory="", workers=8):
@@ -133,8 +135,16 @@ def upload_checkpoint():
     print(f'removed {filename} successfully')
 
 # def main():
+if continue_processing:
+  for doc in fw:
+    if doc["id"] == checkpoint_to_resume:
+      break
+
 with mp.Pool(nprocs) as pool:
-  shard_index = 0
+  if continue_processing:
+    shard_index = shard_to_resume
+  else: 
+    shard_index = 0
 
   # preallocate buffer to hold current shard
   all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
@@ -143,67 +153,64 @@ with mp.Pool(nprocs) as pool:
   
   for tokens, doc_id in pool.imap(tokenize, fw, chunksize=16):
 
-    if tokens is None:
-      continue
-    else:
       # is there enough space in the current shard for the new tokens?
-      if token_count + len(tokens) < shard_size:
-        # simply append tokens to current shard
-        all_tokens_np[token_count:token_count+len(tokens)] = tokens
-        token_count += len(tokens)
-        # update progress bar
-        if progress_bar is None:
-            progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
-        progress_bar.update(len(tokens))
-      else:
-        # checkpoint the token
-        checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.npy")
-        last_50_tokens = tokens[-50:]
-        np.save(checkpoint_filename, last_50_tokens)
-  
-        # write the current shard and start a new one
-        if shard_index >= 0 and shard_index < VAL_SPLIT:
-          split = 'val/'
-          shard_index_number = shard_index
-        elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT:
-          split = 'test/'
-          shard_index_number = shard_index - VAL_SPLIT
-        else:
-          split = 'train/'
-          shard_index_number = shard_index - TEST_SPLIT
-        split_name = split[:-1]
+    if token_count + len(tokens) < shard_size:
+      # simply append tokens to current shard
+      all_tokens_np[token_count:token_count+len(tokens)] = tokens
+      token_count += len(tokens)
+      # update progress bar
+      if progress_bar is None:
+          progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
+      progress_bar.update(len(tokens))
+    else:
+      # checkpoint the shard
+      checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.txt")
+      with open(checkpoint_filename, "w") as f:
+          f.write(str(shard_index))
 
-        filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
-        # split the document into whatever fits in this shard; the remainder goes to next one
-        remainder = shard_size - token_count
-        progress_bar.update(remainder)
-        all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
-        write_datafile(filename, all_tokens_np)
-        upload_file(split)
-        upload_checkpoint()
-        shard_index += 1
-        progress_bar = None
-        # populate the next shard with the leftovers of the current doc
-        all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
-        token_count = len(tokens)-remainder
-
-    # write any remaining tokens as the last shard
-    if token_count != 0:
+      # write the current shard and start a new one
       if shard_index >= 0 and shard_index < VAL_SPLIT:
-          split = 'val/'
-          shard_index_number = shard_index
-      elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
+        split = 'val/'
+        shard_index_number = shard_index
+      elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT:
         split = 'test/'
         shard_index_number = shard_index - VAL_SPLIT
       else:
         split = 'train/'
         shard_index_number = shard_index - TEST_SPLIT
       split_name = split[:-1]
-      
+
       filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
-      write_datafile(filename, all_tokens_np[:token_count])
+      # split the document into whatever fits in this shard; the remainder goes to next one
+      remainder = shard_size - token_count
+      progress_bar.update(remainder)
+      all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
+      write_datafile(filename, all_tokens_np)
       upload_file(split)
       upload_checkpoint()
+      shard_index += 1
+      progress_bar = None
+      # populate the next shard with the leftovers of the current doc
+      all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
+      token_count = len(tokens)-remainder
+
+  # write any remaining tokens as the last shard
+  if token_count != 0:
+    if shard_index >= 0 and shard_index < VAL_SPLIT:
+        split = 'val/'
+        shard_index_number = shard_index
+    elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
+      split = 'test/'
+      shard_index_number = shard_index - VAL_SPLIT
+    else:
+      split = 'train/'
+      shard_index_number = shard_index - TEST_SPLIT
+    split_name = split[:-1]
+    
+    filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
+    write_datafile(filename, all_tokens_np[:token_count])
+    upload_file(split)
+    upload_checkpoint()
 
 # if __name__ == '__main__':
 #   main()
