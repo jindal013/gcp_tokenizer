@@ -44,8 +44,8 @@ shard_to_resume = 0
 if continue_processing:
   # pull latest checkpoint name from gcp bucket called checkpoints
   print(f'{BLUE}Continuing processing from checkpoint{RESET}')
-  blobs = bucket.list_blobs(BUCKET_NAME, prefix="checkpoints/")
-  checkpoint_blobs = [b for b in blobs if b.name.endswith(".txt")]
+  blobs = bucket.list_blobs(prefix="checkpoints/")
+  checkpoint_blobs = [b for b in blobs if str(b.name).endswith(".txt")]
   if not checkpoint_blobs:
     print(f'{BLUE}No checkpoints found, starting new processing{RESET}')
   else:
@@ -56,7 +56,7 @@ if continue_processing:
     print(f'{BLUE}Resuming from checkpoint {checkpoint_to_resume} at shard {shard_to_resume}{RESET}')
 
 else:
-  print(f'{BLUE}Starting new processing{RESET}')
+  print(f'{BLUE}Starting new process... no checkpoint given{RESET}')
 
 # ------------------------------------------
 
@@ -136,13 +136,19 @@ def upload_checkpoint():
 
 # def main():
 if continue_processing:
+  skipped = 0
+  print('starting streaming to skip to desired location')
   for doc in fw:
     if doc["id"] == checkpoint_to_resume:
+      print(f'{BLUE}Resuming from document {doc["id"]} at shard {shard_to_resume}. Skipped {skipped} documents.{RESET}')
       break
+    # if skipped % 100 == 0:
+    #   print(skipped)
+    skipped += 1
 
 with mp.Pool(nprocs) as pool:
   if continue_processing:
-    shard_index = shard_to_resume
+    shard_index = shard_to_resume + 1
   else: 
     shard_index = 0
 
