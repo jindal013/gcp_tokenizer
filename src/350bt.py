@@ -76,8 +76,8 @@ fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", 
 enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
 
 eot = enc._special_tokens['<|endoftext|>'] # end of text token
-def tokenize(document_id):
-  doc_id_return = document_id['id']
+def tokenize(doc):
+  doc_id_return = doc['id']
   tokens = [eot] # the special <|endoftext|> token delimits all documents
   tokens.extend(enc.encode_ordinary(doc["text"]))
   tokens_np = np.array(tokens)
