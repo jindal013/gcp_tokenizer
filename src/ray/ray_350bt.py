@@ -145,7 +145,9 @@ all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
 token_count = 0
 progress_bar = None
 
-BATCH_SIZE = 16
+int(os.getenv("BATCH_SIZE", "256"))
+BATCH_SIZE = 512
+print(f'batch size: {BATCH_SIZE}')
 doc_iter = iter(fw)
 
 while True:
@@ -171,7 +173,7 @@ while True:
         token_count += len(tokens)
       # update progress bar
         if progress_bar is None:
-          progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
+          progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}", dynamic_ncols=True)
         progress_bar.update(len(tokens))
       else:
       # checkpoint the shard
@@ -197,6 +199,9 @@ while True:
         progress_bar.update(remainder)
         all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
         write_datafile(filename, all_tokens_np)
+        # if not os.getenv("BENCHMARK"):
+        #   upload_file(split)
+        #   upload_checkpoint()
         upload_file(split)
         upload_checkpoint()
         shard_index += 1
@@ -220,6 +225,9 @@ if token_count != 0:
     
   filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
   write_datafile(filename, all_tokens_np[:token_count])
+  # if not os.getenv("BENCHMARK"):
+  #   upload_file(split)
+  #   upload_checkpoint()
   upload_file(split)
   upload_checkpoint()
 

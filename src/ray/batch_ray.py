@@ -7,6 +7,10 @@ from datasets import load_dataset # pip install datasets
 from tqdm import tqdm # pip install tqdm
 from google.cloud.storage import Client, transfer_manager
 import argparse
+import ray
+import time
+
+ray.init(address="auto")
 
 BLUE = '\033[34m'
 GREEN = '\033[32m'
@@ -76,6 +80,7 @@ fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", 
 enc = tiktoken.encoding_for_model("gpt-4") # 'cl100k_base'
 
 eot = enc._special_tokens['<|endoftext|>'] # end of text token
+@ray.remote
 def tokenize(doc):
   doc_id_return = doc['id']
   tokens = [eot] # the special <|endoftext|> token delimits all documents
@@ -136,77 +141,94 @@ print('total docs processed so far: ' + str(skip_number))
 if continue_processing:
   print('skipped to the previous checkpoint')
 
-with mp.Pool(nprocs) as pool:
-  if continue_processing:
-    shard_index = shard_to_resume + 1
-  else: 
-    shard_index = 0
+shard_index = shard_to_resume + 1 if continue_processing else 0
+all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
+token_count = 0
+progress_bar = None
 
-  # preallocate buffer to hold current shard
-  all_tokens_np = np.empty((shard_size,), dtype=np.uint32)
-  token_count = 0
-  progress_bar = None
-  
-  for tokens, doc_id in pool.imap(tokenize, fw, chunksize=16):
-    skip_number += 1
+int(os.getenv("BATCH_SIZE", "256"))
+doc_iter = iter(fw)
+
+while True:
+    batch = []
+    try:
+      for _ in range(BATCH_SIZE):
+        batch.append(next(doc_iter))
+    except StopIteration:
+      pass
+    
+    if not batch:
+      break
+    
+    futures = [tokenize.remote(doc) for doc in batch]
+    results = ray.get(futures)
+    
+    for tokens, doc_id in results:
+      skip_number += 1
       # is there enough space in the current shard for the new tokens?
-    if token_count + len(tokens) < shard_size:
-      # simply append tokens to current shard
-      all_tokens_np[token_count:token_count+len(tokens)] = tokens
-      token_count += len(tokens)
+      if token_count + len(tokens) < shard_size:
+        # simply append tokens to current shard
+        all_tokens_np[token_count:token_count+len(tokens)] = tokens
+        token_count += len(tokens)
       # update progress bar
-      if progress_bar is None:
-          progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
-      progress_bar.update(len(tokens))
-    else:
+        if progress_bar is None:
+          progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}", dynamic_ncols=True)
+        progress_bar.update(len(tokens))
+      else:
       # checkpoint the shard
-      checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.txt")
-      with open(checkpoint_filename, "w") as f:
+        checkpoint_filename = os.path.join(checkpoint_dir, f"{doc_id}.txt")
+        with open(checkpoint_filename, "w") as f:
           f.write(str(shard_index) + ':' + str(skip_number))
 
-      # write the current shard and start a new one
-      if shard_index >= 0 and shard_index < VAL_SPLIT:
-        split = 'val/'
-        shard_index_number = shard_index
-      elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT:
-        split = 'test/'
-        shard_index_number = shard_index - VAL_SPLIT
-      else:
-        split = 'train/'
-        shard_index_number = shard_index - TEST_SPLIT
-      split_name = split[:-1]
+        # write the current shard and start a new one
+        if shard_index < VAL_SPLIT:
+          split = 'val/'
+          shard_index_number = shard_index
+        elif shard_index < TEST_SPLIT:
+            split = 'test/'
+            shard_index_number = shard_index - VAL_SPLIT
+        else:
+            split = 'train/'
+            shard_index_number = shard_index - TEST_SPLIT
+        split_name = split[:-1]
 
-      filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
-      # split the document into whatever fits in this shard; the remainder goes to next one
-      remainder = shard_size - token_count
-      progress_bar.update(remainder)
-      all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
-      write_datafile(filename, all_tokens_np)
-      upload_file(split)
-      upload_checkpoint()
-      shard_index += 1
-      progress_bar = None
-      # populate the next shard with the leftovers of the current doc
-      all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
-      token_count = len(tokens)-remainder
+        filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
+        # split the document into whatever fits in this shard; the remainder goes to next one
+        remainder = shard_size - token_count
+        progress_bar.update(remainder)
+        all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
+        write_datafile(filename, all_tokens_np)
+        if not os.getenv("BENCHMARK"):
+          upload_file(split)
+          upload_checkpoint()
+        # upload_file(split)
+        # upload_checkpoint()
+        shard_index += 1
+        progress_bar = None
+        # populate the next shard with the leftovers of the current doc
+        all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
+        token_count = len(tokens)-remainder
 
-  # write any remaining tokens as the last shard
-  if token_count != 0:
-    if shard_index >= 0 and shard_index < VAL_SPLIT:
-        split = 'val/'
-        shard_index_number = shard_index
-    elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
-      split = 'test/'
-      shard_index_number = shard_index - VAL_SPLIT
-    else:
-      split = 'train/'
-      shard_index_number = shard_index - TEST_SPLIT
-    split_name = split[:-1]
+# write any remaining tokens as the last shard
+if token_count != 0:
+  if shard_index >= 0 and shard_index < VAL_SPLIT:
+    split = 'val/'
+    shard_index_number = shard_index
+  elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
+    split = 'test/'
+    shard_index_number = shard_index - VAL_SPLIT
+  else:
+    split = 'train/'
+    shard_index_number = shard_index - TEST_SPLIT
+  split_name = split[:-1]
     
-    filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
-    write_datafile(filename, all_tokens_np[:token_count])
+  filename = os.path.join(DATA_CACHE_DIR, f"{split_name}_{shard_index_number:04d}")
+  write_datafile(filename, all_tokens_np[:token_count])
+  if not os.getenv("BENCHMARK"):
     upload_file(split)
     upload_checkpoint()
+  # upload_file(split)
+  # upload_checkpoint()
 
 # if __name__ == '__main__':
 #   main()
