@@ -67,8 +67,10 @@ else:
 # create the cache the local directory if it doesn't exist yet
 DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
 checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
+final_dir = os.path.join(os.path.dirname(__file__), 'final_data')
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 os.makedirs(checkpoint_dir, exist_ok=True)
+os.makedirs(final_dir, exist_ok=True)
 
 fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True)
 
@@ -210,7 +212,14 @@ with mp.Pool(nprocs) as pool:
 
 # if __name__ == '__main__':
 #   main()
+def finished_process():
+  final_file = os.path.join(final_dir, f"ALL_UPLOADS_FINISHED.txt")
+  with open(final_file, "w") as f:
+    f.write("All uploads finished successfully.")
+  checkpoint_files = os.listdir(final_dir)
+  for filename in checkpoint_files:
+    blob = bucket.blob(f"{filename}")
+    blob.upload_from_filename(os.path.join(final_dir, filename))
 
-# clean up directory
-if os.path.exists(DATA_CACHE_DIR):
-  shutil.rmtree(DATA_CACHE_DIR)
+print('finished uploading all shards!')
+finished_process()
