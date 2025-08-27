@@ -14,7 +14,7 @@ local_dir = "edu_fineweb10B"
 remote_name = "sample-10BT"
 shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
 
-BUCKET_NAME = "test2_10bt_gpt4"
+BUCKET_NAME = "10bt_gpt2"
 # DATA_CACHE_DIR = "/home/chinmay/data_jax/edu_fineweb10B"
 WORKERS = int(os.cpu_count())
 print('using', WORKERS, 'cpus')
@@ -25,7 +25,7 @@ FILE_NAMES = os.listdir(DATA_CACHE_DIR)
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 
 # download the dataset
-fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=True)
+fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train", streaming=False)
 
 # init the tokenizer
 enc = tiktoken.encoding_for_model("gpt-2") # 'cl100k_base'

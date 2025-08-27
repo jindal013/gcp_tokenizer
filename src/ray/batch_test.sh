@@ -28,7 +28,6 @@ for bs in $(seq 25 50 750) 750; do
   [ -z "${RATE:-}" ] && RATE="NA"
 
 
-  # can we print what w see so i can make sure its correct?
   echo "$LOG"
 
   # Fallback if we didn’t see a rate line yet
