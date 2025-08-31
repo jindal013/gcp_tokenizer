@@ -4,7 +4,7 @@
 
 from google.cloud import storage_control_v2
 from dotenv import load_dotenv
-import os 
+import os
 
 load_dotenv()
 

@@ -1,5 +1,6 @@
 """
 Original script taken directly from Karpathy's NanoGPT project.
+Link: https://github.com/karpathy/build-nanogpt
 """
 
 import os
