@@ -1,10 +1,15 @@
-from google.cloud import storage_control_v2
+# Before running: 
+# 1) pip install -r req.txt in tokenizer dir
+# 2) authenticate using gcloud CLI
 
+from google.cloud import storage_control_v2
+from dotenv import load_dotenv
+import os 
+
+load_dotenv()
 
 def create_folder(bucket_name: str, folder_name: str) -> None:
     storage_control_client = storage_control_v2.StorageControlClient()
-    # The storage bucket path uses the global access pattern, in which the "_"
-    # denotes this bucket exists in the global namespace.
     project_path = storage_control_client.common_project_path("_")
     bucket_path = f"{project_path}/buckets/{bucket_name}"
 
@@ -17,9 +22,11 @@ def create_folder(bucket_name: str, folder_name: str) -> None:
     print(f"Created folder: {response.name}")
 
 if __name__ == '__main__':
-   # The ID of your GCS bucket
-  bucket_name = "350bt_gpt4"
+  bucket_name = os.getenv("GCP_BUCKET", default="")
 
-    # The name of the folder to be created
   for folder_name in ['train', 'val', 'test', 'checkpoints']:
-    create_folder(bucket_name, folder_name)
+    if bucket_name == "":
+      print("GCP_BUCKET is not set")
+      raise ValueError("GCP_BUCKET is not set")
+    else:
+      create_folder(bucket_name, folder_name)
