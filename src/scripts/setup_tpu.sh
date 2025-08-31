@@ -1,0 +1,1 @@
+# this script will set up tpu, ssh, install all required and start ray cluster
