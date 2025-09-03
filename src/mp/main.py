@@ -16,8 +16,7 @@ local_dir = "data_dir"
 remote_name = "sample-350BT"
 shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
 
-VAL_SPLIT = 350
-TEST_SPLIT = 700
+TEST_SPLIT = 350
 
 BUCKET_NAME = "350bt_gpt4"
 WORKERS = int(os.cpu_count())
@@ -166,12 +165,9 @@ with mp.Pool(nprocs) as pool:
           f.write(str(shard_index) + ':' + str(skip_number))
 
       # write the current shard and start a new one
-      if shard_index >= 0 and shard_index < VAL_SPLIT:
-        split = 'val/'
-        shard_index_number = shard_index
-      elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT:
+      if shard_index >= 0 and shard_index < TEST_SPLIT:
         split = 'test/'
-        shard_index_number = shard_index - VAL_SPLIT
+        shard_index_number = shard_index
       else:
         split = 'train/'
         shard_index_number = shard_index - TEST_SPLIT
@@ -193,12 +189,9 @@ with mp.Pool(nprocs) as pool:
 
   # write any remaining tokens as the last shard
   if token_count != 0:
-    if shard_index >= 0 and shard_index < VAL_SPLIT:
-        split = 'val/'
+    if shard_index >= 0 and shard_index < TEST_SPLIT:
+        split = 'test/'
         shard_index_number = shard_index
-    elif shard_index >= VAL_SPLIT and shard_index < TEST_SPLIT: 
-      split = 'test/'
-      shard_index_number = shard_index - VAL_SPLIT
     else:
       split = 'train/'
       shard_index_number = shard_index - TEST_SPLIT

@@ -24,7 +24,7 @@ def create_folder(bucket_name: str, folder_name: str) -> None:
 if __name__ == '__main__':
   bucket_name = os.getenv("GCP_BUCKET", default="")
 
-  for folder_name in ['train', 'val', 'test', 'checkpoints']:
+  for folder_name in ['train', 'test', 'checkpoints']:
     if bucket_name == "":
       print("GCP_BUCKET is not set")
       raise ValueError("GCP_BUCKET is not set")
