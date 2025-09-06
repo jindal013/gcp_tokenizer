@@ -1,13 +1,6 @@
 # GCP Tokenizer
 
-Collection of scripts to efficiently upload tokenized shards to GCP buckets. 
-
-TO-DO:
-0. Link to blog post
-1. gcloud setup
-2. execution
-3. File structure
-4. Links and further reading
+Collection of scripts to efficiently upload tokenized shards to GCP buckets. This is not the right repo you should be looking at though. See this: [Jaxformer](https://github.com/divyamakkar0/Jaxformer) or visit the blog website at [jaxformer.com](https://jaxformer.com).
 
 ### Setup and Execution
 
